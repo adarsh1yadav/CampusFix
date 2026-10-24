@@ -1,0 +1,48 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Admin authorization check:
+    // Matches the fixed admin email (or custom claims if configured)
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.email == 'admin@campus.edu' ||
+        (request.auth.token.keys().hasAll(['admin']) && request.auth.token.admin == true)
+      );
+    }
+
+    // Complaints Collection Security Rules
+    match /complaints/{complaintId} {
+      
+      // 1. READ:
+      // - Admins can read all complaints from all students.
+      // - Students can ONLY read complaints that they submitted themselves.
+      allow read: if isAdmin() || (
+        isAuthenticated() && resource.data.userId == request.auth.uid
+      );
+
+      // 2. CREATE:
+      // - Any authenticated student can submit a complaint.
+      // - The complaint's userId field must strictly match their own Auth UID.
+      // - The initial status must be 'Pending'.
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.status == 'Pending';
+
+      // 3. UPDATE:
+      // - ONLY admins are permitted to update complaints (e.g. changing status).
+      // - Students cannot modify complaint details or elevate their own status.
+      allow update: if isAdmin();
+
+      // 4. DELETE:
+      // - Only administrators may delete records.
+      allow delete: if isAdmin();
+    }
+  }
+}
